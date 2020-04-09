@@ -455,9 +455,12 @@ def read_hdf5(inclass, infile):
     return f
 
 
-def make_xarray_atmos(outfile, T, vz, z, nH=None, x=None, y=None, Bz=None, By=None,
-                      Bx=None, rho=None, ne=None, vx=None, vy=None, vturb=None,
-                      desc=None, snap=None, boundary=None, append=False):
+def make_xarray_atmos(
+    outfile, T, vz, z=None, cmass=None,
+    nH=None, x=None, y=None, Bz=None, By=None,
+    Bx=None, rho=None, ne=None, vx=None, vy=None, vturb=None,
+    desc=None, snap=None, boundary=None, append=False
+):
     """
     Creates HDF5 input file for RH 1.5D using xarray.
 
@@ -474,6 +477,9 @@ def make_xarray_atmos(outfile, T, vz, z, nH=None, x=None, y=None, Bz=None, By=No
         Line of sight velocity in m/s. Same shape as T.
     z : n-D array
         Height in m. Can have same shape as T (different height scale
+        for each column) or be only 1D (same height for all columns).
+    cmass: n-D array
+        Column mass in Kg/m3. Can have same shape as T (different height scale
         for each column) or be only 1D (same height for all columns).
     nH : n-D array, optional
         Hydrogen populations in m^-3. Shape is (nt, nhydr, nx, ny, nz),
@@ -528,7 +534,17 @@ def make_xarray_atmos(outfile, T, vz, z, nH=None, x=None, y=None, Bz=None, By=No
             'velocity_turbulent': [vturb, 'm / s'],
             'x': [x, 'm'],
             'y': [y, 'm'],
-            'z': [z, 'm']}
+            'z': [z, 'm'],
+            'columnmass': [cmass, 'Kg/m3']}
+    
+    if z is None and cmass is None:
+        raise ValueError('Atleast z or cmass must be present')
+
+    if z is not None:
+        scale = 0
+    elif cmass is not None:
+        scale = 1
+    
     VARS4D = ['temperature', 'B_x', 'B_y', 'B_z', 'density', 'velocity_x',
               'velocity_y', 'velocity_z', 'velocity_turbulent', 'density',
               'electron_density']
@@ -561,7 +577,7 @@ def make_xarray_atmos(outfile, T, vz, z, nH=None, x=None, y=None, Bz=None, By=No
             elif v == 'hydrogen_populations':
                 variables[v] = (('snapshot_number', 'nhydr', 'x', 'y', 'depth'),
                                 data[v][0], {'units': data[v][1]})
-            elif v == 'z':
+            elif v in ['z', 'columnmass']:
                 dims = ('snapshot_number', 'depth')
                 if len(data[v][0].shape) == 1:  # extra dim for nt dependency
                     data[v][0] = data[v][0][None, :]
@@ -575,7 +591,7 @@ def make_xarray_atmos(outfile, T, vz, z, nH=None, x=None, y=None, Bz=None, By=No
                              "on %s" % datetime.datetime.now()),
                  "boundary_top": boundary[1], "boundary_bottom": boundary[0],
                  "has_B": int(Bz is not None), "description": str(desc),
-                 "nx": nx, "ny": ny, "nz": nz, "nt": nt}
+                 "nx": nx, "ny": ny, "nz": nz, "nt": nt, 'scale': scale}
         data = xr.Dataset(variables, coordinates, attrs)
         data.to_netcdf(outfile, mode='w', format='NETCDF4',
                        unlimited_dims=('snapshot_number'))
